@@ -1,8 +1,8 @@
 from datetime import datetime
 import json
 import os
-import streamlit as st
 import requests
+import streamlit as st
 
 DATA_FILE = "licenses_data.json"
 
@@ -36,8 +36,7 @@ def save_data(data):
 # Khởi tạo dữ liệu
 licenses = load_data()
 
-# --- Cấu hình Telegram (Có thể lấy từ st.secrets hoặc cấu hình trực tiếp) ---
-# Nếu đưa lên Streamlit Cloud, anh có thể cấu hình ở phần Secrets trên giao diện web của Streamlit
+# --- Cấu hình Telegram ---
 TELEGRAM_TOKEN = st.secrets.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 
@@ -45,8 +44,12 @@ TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 st.sidebar.header("➕ Thêm Bản Quyền Mới")
 with st.sidebar.form("add_license_form"):
   name_input = st.text_input("Tên thiết bị / phần mềm")
-  start_date = st.date_input("Ngày bắt đầu sử dụng", value=datetime.today())
-  end_date = st.date_input("Ngày hết hạn", value=datetime.today())
+  start_date = st.date_input(
+      "Ngày sử dụng", value=datetime.today(), format="DD/MM/YYYY"
+  )
+  end_date = st.date_input(
+      "Ngày hết hạn", value=datetime.today(), format="DD/MM/YYYY"
+  )
 
   submit_btn = st.form_submit_button("Thêm mới")
 
@@ -54,7 +57,7 @@ with st.sidebar.form("add_license_form"):
     if not name_input.strip():
       st.sidebar.error("Vui lòng nhập tên thiết bị hoặc phần mềm!")
     elif end_date < start_date:
-      st.sidebar.error("Ngày hết hạn không thể trước ngày bắt đầu!")
+      st.sidebar.error("Ngày hết hạn không thể trước ngày sử dụng!")
     else:
       licenses.append({
           "name": name_input.strip(),
@@ -69,58 +72,74 @@ with st.sidebar.form("add_license_form"):
 st.subheader("📋 Danh Sách Thiết Bị & Phần Mềm")
 
 if not licenses:
-  st.info("Chưa có dữ liệu bản quyền nào. Hãy thêm mới ở thanh bên trái (Sidebar).")
+  st.info(
+      "Chưa có dữ liệu bản quyền nào. Hãy thêm mới ở thanh bên trái (Sidebar)."
+  )
 else:
   today = datetime.now().date()
   warning_list = []
 
-  # Chuẩn bị dữ liệu hiển thị bảng
-  display_data = []
-  for idx, item in enumerate(licenses):
-    e_date = datetime.strptime(item["end_date"], "%Y-%m-%d").date()
-    delta = (e_date - today).days
+  # --- HÀNG TIÊU ĐỀ CỘT ---
+  h_col1, h_col2, h_col3, h_col4, h_col5, h_col6 = st.columns(
+      [0.7, 3, 1.8, 1.8, 2.7, 1]
+  )
+  h_col1.markdown("**STT**")
+  h_col2.markdown("**Thiết bị / Phần mềm**")
+  h_col3.markdown("**Ngày sử dụng**")
+  h_col4.markdown("**Ngày hết hạn**")
+  h_col5.markdown("**Trạng thái**")
+  h_col6.markdown("**Thao tác**")
+  st.divider()
 
+  # --- HIỂN THỊ TỪNG DÒNG DỮ LIỆU ---
+  for idx, item in enumerate(licenses):
+    s_date_obj = datetime.strptime(item["start_date"], "%Y-%m-%d").date()
+    e_date_obj = datetime.strptime(item["end_date"], "%Y-%m-%d").date()
+    delta = (e_date_obj - today).days
+
+    # Định dạng ngày hiển thị DD/MM/YYYY
+    s_date_str = s_date_obj.strftime("%d/%m/%Y")
+    e_date_str = e_date_obj.strftime("%d/%m/%Y")
+
+    is_warning = False
     if delta < 0:
       status_text = f"🚨 Đã quá hạn {abs(delta)} ngày!"
-      tag = "🔴 HẾT HẠN"
+      is_warning = True
     elif delta <= 30:
       status_text = f"⚠️ Sắp hết hạn (Còn {delta} ngày)"
-      tag = "🟠 SẮP HẾT HẠN"
+      is_warning = True
     else:
       status_text = f"✅ Còn hạn ({delta} ngày)"
-      tag = "🟢 BÌNH THƯỜNG"
-
-    display_data.append({
-        "ID": idx,
-        "Tên Thiết Bị / Phần Mềm": item["name"],
-        "Ngày Bắt Đầu": item["start_date"],
-        "Ngày Hết Hạn": item["end_date"],
-        "Trạng Thái": status_text,
-    })
 
     if delta <= 30:
       warning_list.append(
-          f"- {item['name']}: Còn {delta} ngày (Hết hạn: {item['end_date']})"
+          f"- {item['name']}: Còn {delta} ngày (Hết hạn: {e_date_str})"
       )
 
-  # Hiển thị bảng
-  for item in display_data:
-    col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 3, 1])
+    col1, col2, col3, col4, col5, col6 = st.columns([0.7, 3, 1.8, 1.8, 2.7, 1])
+
     with col1:
-      # Tô màu đỏ nếu sắp hết hạn hoặc quá hạn trực tiếp trên giao diện
-      if "Đã quá hạn" in item["Trạng Thái"] or "Sắp hết hạn" in item["Trạng Thái"]:
-        st.markdown(f"🔴 **{item['Tên Thiết Bị / Phần Mềm']}**")
-      else:
-        st.markdown(f"**{item['Tên Thiết Bị / Phần Mềm']}**")
+      st.write(f"{idx + 1}")
     with col2:
-      st.text(item["Ngày Bắt Đầu"])
+      if is_warning:
+        st.markdown(f":red[🔴 **{item['name']}**]")
+      else:
+        st.markdown(f"**{item['name']}**")
     with col3:
-      st.text(item["Ngày Hết Hạn"])
+      st.text(s_date_str)
     with col4:
-      st.text(item["Trạng Thái"])
+      if is_warning:
+        st.markdown(f":red[**{e_date_str}**]")
+      else:
+        st.text(e_date_str)
     with col5:
-      if st.button("Xóa", key=f"del_{item['ID']}"):
-        del licenses[item["ID"]]
+      if is_warning:
+        st.markdown(f":red[**{status_text}**]")
+      else:
+        st.text(status_text)
+    with col6:
+      if st.button("Xóa", key=f"del_{idx}"):
+        del licenses[idx]
         save_data(licenses)
         st.rerun()
 
